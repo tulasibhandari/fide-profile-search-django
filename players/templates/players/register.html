@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Register</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    .row { margin-bottom: 1rem; }
+    label { display: block; font-weight: 600; margin-bottom: .25rem; }
+    input { padding: .5rem; width: 100%; box-sizing: border-box; }
+    input:disabled { background: #f1f1f1; color: #333; }
+    .inline { display: flex; gap: .5rem; }
+    .inline button { white-space: nowrap; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+    .errorlist { color: #b00020; list-style: none; padding: 0; margin: .25rem 0; }
+    #fide-status { min-height: 1.4em; margin-top: .25rem; }
+    #fide-status.error { color: #b00020; }
+    #fide-photo { max-width: 120px; border-radius: 8px; display: none; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Player registration</h1>
+
+  <form method="post" id="fide-form"
+        data-lookup-url="{% url 'fide_player' 0 %}">
+    {% csrf_token %}
+
+    <div class="row">
+      <label for="{{ form.fide_id.id_for_label }}">FIDE ID</label>
+      <div class="inline">
+        {{ form.fide_id }}
+        <button type="button" id="fide-fetch">Fetch</button>
+      </div>
+      <div id="fide-status" role="status" aria-live="polite"></div>
+      {{ form.fide_id.errors }}
+    </div>
+
+    <img id="fide-photo" alt="Player photo">
+
+    <div class="row">{{ form.name.label_tag }} {{ form.name }}</div>
+    <div class="grid">
+      <div class="row">{{ form.title.label_tag }} {{ form.title }}</div>
+      <div class="row">{{ form.federation.label_tag }} {{ form.federation }}</div>
+      <div class="row">{{ form.birth_year.label_tag }} {{ form.birth_year }}</div>
+    </div>
+    <div class="grid">
+      <div class="row">{{ form.standard.label_tag }} {{ form.standard }}</div>
+      <div class="row">{{ form.rapid.label_tag }} {{ form.rapid }}</div>
+      <div class="row">{{ form.blitz.label_tag }} {{ form.blitz }}</div>
+    </div>
+
+    <div class="row">{{ form.email.label_tag }} {{ form.email }} {{ form.email.errors }}</div>
+    <div class="row">{{ form.phone.label_tag }} {{ form.phone }} {{ form.phone.errors }}</div>
+
+    <button type="submit">Register</button>
+  </form>
+
+<script>
+(function () {
+  const formEl = document.getElementById("fide-form");
+  const input  = document.getElementById("id_fide_id");
+  const btn    = document.getElementById("fide-fetch");
+  const status = document.getElementById("fide-status");
+  const photo  = document.getElementById("fide-photo");
+  const urlTpl = formEl.dataset.lookupUrl;           // e.g. /fide/0/
+
+  // form field id -> how to read it from the JSON response
+  const fields = {
+    name:       p => p.name,
+    title:      p => p.title,
+    federation: p => p.federation,
+    birth_year: p => p.birth_year,
+    standard:   p => p.ratings && p.ratings.standard,
+    rapid:      p => p.ratings && p.ratings.rapid,
+    blitz:      p => p.ratings && p.ratings.blitz,
+  };
+
+  function setStatus(msg, isError) {
+    status.textContent = msg;                          // textContent, never innerHTML
+    status.classList.toggle("error", !!isError);
+  }
+
+  function fill(p) {
+    for (const [id, get] of Object.entries(fields)) {
+      const v = get(p);
+      document.getElementById("id_" + id).value = (v === null || v === undefined) ? "" : v;
+    }
+    if (p.photo && p.photo.startsWith("https://")) {
+      photo.src = p.photo;
+      photo.style.display = "block";
+    } else {
+      photo.style.display = "none";
+    }
+  }
+
+  function clearFields() {
+    for (const id of Object.keys(fields)) document.getElementById("id_" + id).value = "";
+    photo.style.display = "none";
+  }
+
+  async function lookup() {
+    const id = input.value.trim();
+    if (!/^[1-9]\d*$/.test(id)) {
+      clearFields();
+      setStatus("Enter a numeric FIDE ID.", true);
+      return;
+    }
+    btn.disabled = true;
+    setStatus("Looking up…");
+    try {
+      const res  = await fetch(urlTpl.replace(/0\/$/, id + "/"));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        clearFields();
+        setStatus(data.error || "Lookup failed.", true);
+        return;
+      }
+      fill(data);
+      setStatus("Found: " + data.name);
+    } catch (e) {
+      clearFields();
+      setStatus("Network error. Please try again.", true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  btn.addEventListener("click", lookup);
+  input.addEventListener("keydown", e => {            // Enter fetches instead of submitting
+    if (e.key === "Enter") { e.preventDefault(); lookup(); }
+  });
+  input.addEventListener("input", clearFields);        // changed ID -> stale data cleared
+
+  // After a failed POST (e.g. bad email) the disabled fields come back empty: refill them
+  if (input.value.trim()) lookup();
+})();
+</script>
+</body>
+</html>
